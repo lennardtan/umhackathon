@@ -6,20 +6,38 @@ import { ArrowUpRight, ArrowDownRight, DollarSign, Upload, Plus, AlertCircle, X 
 export default function Expenses() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  
+  const [summary, setSummary] = useState({ totalRevenue: 0, totalExpenses: 0, netProfit: 0 });
+  const [topCostDriver, setTopCostDriver] = useState<{ category: string; amount: number; pct: number } | null>(null);
+
   // Form state
   const [formData, setFormData] = useState({
     Order_Date: new Date().toISOString().split('T')[0],
     Product_Name: "",
     Sales: "",
-    Category: "Other"
+    Category: "Other",
+    type: "expense"
   });
 
   const fetchTransactions = async () => {
     try {
-      const res = await fetch('/api/transactions');
-      const data = await res.json();
-      setTransactions(data);
+      const [txRes, analyticsRes] = await Promise.all([
+        fetch('/api/transactions'),
+        fetch('/api/analytics'),
+      ]);
+      const txData = await txRes.json();
+      const analyticsData = await analyticsRes.json();
+      setTransactions(txData);
+
+      // Compute summary directly from transaction list so it always works
+      const totalRevenue = txData.filter((t: any) => t.type === 'income').reduce((s: number, t: any) => s + (t.Sales || 0), 0);
+      const totalExpenses = txData.filter((t: any) => t.type === 'expense').reduce((s: number, t: any) => s + (t.Sales || 0), 0);
+      setSummary({ totalRevenue, totalExpenses, netProfit: totalRevenue - totalExpenses });
+
+      if (analyticsData.categoryData && analyticsData.categoryData.length > 0) {
+        const top = analyticsData.categoryData[0];
+        const pct = totalExpenses > 0 ? Math.round((top.amount / totalExpenses) * 100) : 0;
+        setTopCostDriver({ category: top.category, amount: top.amount, pct });
+      }
     } catch (err) {
       console.error(err);
     }
@@ -60,7 +78,7 @@ export default function Expenses() {
         }),
       });
       setIsAddModalOpen(false);
-      setFormData({ Order_Date: new Date().toISOString().split('T')[0], Product_Name: "", Sales: "", Category: "Other" });
+      setFormData({ Order_Date: new Date().toISOString().split('T')[0], Product_Name: "", Sales: "", Category: "Other", type: "expense" });
       fetchTransactions();
     } catch (err) {
       console.error(err);
@@ -91,13 +109,15 @@ export default function Expenses() {
         </div>
 
         {/* Top Cost Driver Alert */}
-        <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 mb-8 flex items-start space-x-3 fade-in">
-          <AlertCircle className="w-5 h-5 text-destructive mt-0.5" />
-          <div>
-            <h3 className="font-semibold text-destructive">Top Cost Driver Identified</h3>
-            <p className="text-sm text-destructive/90">Your biggest expense this month is <span className="font-bold">Rent</span> at $1,200 (35% of total expenses). GLM-4 recommends reviewing office space utilization.</p>
+        {topCostDriver && (
+          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 mb-8 flex items-start space-x-3 fade-in">
+            <AlertCircle className="w-5 h-5 text-destructive mt-0.5" />
+            <div>
+              <h3 className="font-semibold text-destructive">Top Cost Driver Identified</h3>
+              <p className="text-sm text-destructive/90">Your biggest expense category is <span className="font-bold">{topCostDriver.category}</span> at ${topCostDriver.amount.toFixed(2)} ({topCostDriver.pct}% of total expenses). Consider reviewing this spend.</p>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
@@ -108,10 +128,10 @@ export default function Expenses() {
                 <ArrowUpRight className="text-emerald-500 w-5 h-5" />
               </div>
             </div>
-            <h2 className="text-3xl font-bold text-emerald-400">$8,540.00</h2>
-            <p className="text-sm text-emerald-500/80 mt-2">+12.5% from last month</p>
+            <h2 className="text-3xl font-bold text-emerald-400">${summary.totalRevenue.toFixed(2)}</h2>
+            <p className="text-sm text-emerald-500/80 mt-2">From all income transactions</p>
           </div>
-          
+
           <div className="bg-card border border-border rounded-xl p-6 shadow-card hover:shadow-glow-lg transition-all duration-300 transform hover:-translate-y-1">
             <div className="flex items-center justify-between mb-4">
               <span className="text-muted-foreground font-medium">Total Expenses</span>
@@ -119,8 +139,8 @@ export default function Expenses() {
                 <ArrowDownRight className="text-destructive w-5 h-5" />
               </div>
             </div>
-            <h2 className="text-3xl font-bold text-destructive">$3,425.50</h2>
-            <p className="text-sm text-destructive/80 mt-2">+4.2% from last month</p>
+            <h2 className="text-3xl font-bold text-destructive">${summary.totalExpenses.toFixed(2)}</h2>
+            <p className="text-sm text-destructive/80 mt-2">From all expense transactions</p>
           </div>
 
           <div className="bg-gradient-primary rounded-xl p-6 shadow-glow position-relative overflow-hidden transform hover:-translate-y-1 transition-all">
@@ -131,8 +151,8 @@ export default function Expenses() {
                   <DollarSign className="text-white w-5 h-5" />
                 </div>
               </div>
-              <h2 className="text-3xl font-bold text-white">$5,114.50</h2>
-              <p className="text-sm text-white/80 mt-2">Healthy margin this period</p>
+              <h2 className="text-3xl font-bold text-white">${summary.netProfit.toFixed(2)}</h2>
+              <p className="text-sm text-white/80 mt-2">{summary.netProfit >= 0 ? 'Healthy margin this period' : 'Net loss this period'}</p>
             </div>
           </div>
         </div>
@@ -176,8 +196,8 @@ export default function Expenses() {
                   <tr key={tx.Row_ID} className="hover:bg-muted/30 transition-colors">
                     <td className="p-4 text-sm">{tx.Order_Date}</td>
                     <td className="p-4 font-medium">{tx.Product_Name}</td>
-                    <td className={`p-4 font-bold text-emerald-400`}>
-                      ${parseFloat(tx.Sales).toFixed(2)}
+                    <td className={`p-4 font-bold ${tx.type === 'income' ? 'text-emerald-400' : 'text-destructive'}`}>
+                      {tx.type === 'income' ? '+' : '-'}${parseFloat(tx.Sales).toFixed(2)}
                     </td>
                     <td className="p-4">
                       <select 
@@ -215,6 +235,26 @@ export default function Expenses() {
               </Button>
             </div>
             <div className="p-4 space-y-4">
+              {/* Income / Expense toggle */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Transaction Type</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFormData({...formData, type: "income"})}
+                    className={`py-2 rounded-md text-sm font-semibold border transition-colors ${formData.type === "income" ? "bg-emerald-500 border-emerald-500 text-white" : "bg-background border-border text-muted-foreground hover:border-emerald-500"}`}
+                  >
+                    + Income
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({...formData, type: "expense"})}
+                    className={`py-2 rounded-md text-sm font-semibold border transition-colors ${formData.type === "expense" ? "bg-destructive border-destructive text-white" : "bg-background border-border text-muted-foreground hover:border-destructive"}`}
+                  >
+                    − Expense
+                  </button>
+                </div>
+              </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Order Date</label>
                 <input 
@@ -250,21 +290,31 @@ export default function Expenses() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Category</label>
-                  <select 
-                    className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
-                    value={formData.Category}
-                    onChange={e => setFormData({...formData, Category: e.target.value})}
-                  >
-                    <option value="Other">Auto-categorize (GLM)</option>
-                    <option value="Salary">Salary</option>
-                    <option value="Rent">Rent</option>
-                    <option value="Utilities">Utilities</option>
-                    <option value="Marketing">Marketing</option>
-                    <option value="Inventory">Inventory</option>
-                    <option value="Transport">Transport</option>
-                    <option value="Revenue">Revenue</option>
-                    <option value="Miscellaneous">Miscellaneous</option>
-                  </select>
+                  {formData.type === "income" ? (
+                    <select
+                      className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                      value={formData.Category}
+                      onChange={e => setFormData({...formData, Category: e.target.value})}
+                    >
+                      <option value="Revenue">Revenue</option>
+                      <option value="Other">Auto-categorize (GLM)</option>
+                    </select>
+                  ) : (
+                    <select
+                      className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                      value={formData.Category}
+                      onChange={e => setFormData({...formData, Category: e.target.value})}
+                    >
+                      <option value="Other">Auto-categorize (GLM)</option>
+                      <option value="Salary">Salary</option>
+                      <option value="Rent">Rent</option>
+                      <option value="Utilities">Utilities</option>
+                      <option value="Marketing">Marketing</option>
+                      <option value="Inventory">Inventory</option>
+                      <option value="Transport">Transport</option>
+                      <option value="Miscellaneous">Miscellaneous</option>
+                    </select>
+                  )}
                 </div>
               </div>
             </div>

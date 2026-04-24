@@ -1,4 +1,9 @@
-import 'dotenv/config'; // must be first
+import dotenv from 'dotenv';
+import { fileURLToPath as _ftu } from 'url';
+import { dirname as _dn, join as _jn } from 'path';
+dotenv.config({ path: _jn(_dn(_ftu(import.meta.url)), '..', '.env') }); // load .env from project root
+const _key = process.env.GLM_API_KEY;
+console.log('[ENV] GLM_API_KEY loaded:', _key ? `${_key.substring(0, 8)}...` : 'NOT FOUND');
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
@@ -6,6 +11,7 @@ import csvParser from 'csv-parser';
 import { Readable } from 'stream';
 import db from './db.js';
 import { categoriseWithGLM, getRecommendationsAndForecast, generateReport } from './glm.js';
+import { loadChatHistory, saveChatMessages, loadLatestReport, saveReport, loadSupabaseTransactions } from './supabase.js';
 
 const app = express();
 app.use(cors());
@@ -13,8 +19,8 @@ app.use(express.json());
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-// --- Shared helper: build financial context from DB ---
-function buildFinancialContext() {
+// --- Shared helper: build financial context from DB + Supabase ---
+async function buildFinancialContext() {
   const getMonthKey = (date) => {
     if (!date) return null;
     if (date.includes('/')) {
@@ -25,25 +31,44 @@ function buildFinancialContext() {
     return null;
   };
 
-  const categoryData = db.prepare(`
-    SELECT Category as category, SUM(Sales) as amount
-    FROM transactions
-    GROUP BY Category
-    ORDER BY amount DESC
-  `).all();
+  // Fetch all data sources first
+  const [supabaseTxs, localTransactions, localCats] = await Promise.all([
+    loadSupabaseTransactions(),
+    Promise.resolve(db.prepare(`SELECT Order_Date, Sales, type FROM transactions`).all()),
+    Promise.resolve(db.prepare(`SELECT Category as category, SUM(Sales) as amount FROM transactions GROUP BY Category ORDER BY amount DESC`).all()),
+  ]);
 
-  const transactions = db.prepare(`SELECT Order_Date, Sales, type FROM transactions`).all();
+  // Category breakdown: merge local SQLite + Supabase UM Hackathon
+  const supabaseCatMap = {};
+  supabaseTxs.forEach(tx => {
+    const cat = tx.Category || 'Uncategorised';
+    supabaseCatMap[cat] = (supabaseCatMap[cat] || 0) + tx.Sales;
+  });
+  const mergedCatMap = {};
+  localCats.forEach(r => { mergedCatMap[r.category] = (mergedCatMap[r.category] || 0) + r.amount; });
+  Object.entries(supabaseCatMap).forEach(([cat, amt]) => { mergedCatMap[cat] = (mergedCatMap[cat] || 0) + amt; });
+  const categoryData = Object.entries(mergedCatMap)
+    .map(([category, amount]) => ({ category, amount }))
+    .sort((a, b) => b.amount - a.amount);
 
   let totalRevenue = 0;
   let totalExpenses = 0;
   const monthMap = {};
 
-  transactions.forEach(tx => {
+  // Supabase UM Hackathon rows = revenue (sales data)
+  supabaseTxs.forEach(tx => {
     const month = getMonthKey(tx.Order_Date);
     if (!month) return;
-
     if (!monthMap[month]) monthMap[month] = { month, revenue: 0, expenses: 0 };
+    totalRevenue += tx.Sales;
+    monthMap[month].revenue += tx.Sales;
+  });
 
+  // Local SQLite = manually added income/expenses
+  localTransactions.forEach(tx => {
+    const month = getMonthKey(tx.Order_Date);
+    if (!month) return;
+    if (!monthMap[month]) monthMap[month] = { month, revenue: 0, expenses: 0 };
     if (tx.type === 'income') {
       totalRevenue += tx.Sales;
       monthMap[month].revenue += tx.Sales;
@@ -95,10 +120,25 @@ function buildFinancialContext() {
 
 // --- 1. Data Input & Categorisation ---
 
-// Get all transactions
-app.get('/api/transactions', (req, res) => {
-  const transactions = db.prepare('SELECT * FROM transactions ORDER BY Row_ID DESC LIMIT 1000').all();
-  res.json(transactions);
+// Get all transactions (local SQLite manual entries + Supabase UM Hackathon)
+app.get('/api/transactions', async (req, res) => {
+  try {
+    const local = db.prepare('SELECT * FROM transactions ORDER BY Row_ID DESC LIMIT 1000').all();
+    const supabaseTxs = await loadSupabaseTransactions();
+    const supabaseRows = supabaseTxs.map((tx, i) => ({
+      Row_ID: `SB-${i}`,
+      Order_ID: tx.Order_ID || '',
+      Order_Date: tx.Order_Date,
+      Product_Name: tx.Product_Name || tx.Sub_Category || tx.Category || 'Sale',
+      Sales: tx.Sales,
+      Category: tx.Category || 'Revenue',
+      type: 'income',
+    }));
+    res.json([...local, ...supabaseRows]);
+  } catch (err) {
+    console.error('GET /api/transactions error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Add a single manual transaction — GLM Call A categorises it
@@ -126,6 +166,7 @@ app.post('/api/transactions', async (req, res) => {
     );
     const result = stmt.run(Order_ID, Order_Date, Product_Name, parseFloat(Sales) || 0, finalCategory, finalType);
 
+    invalidateGLMCache();
     res.json({
       Row_ID: result.lastInsertRowid,
       Order_Date,
@@ -189,7 +230,7 @@ app.post('/api/transactions/upload', upload.single('file'), (req, res) => {
           }
         });
         insertMany(finalRows);
-
+        invalidateGLMCache();
         res.json({ message: `Successfully processed ${finalRows.length} transactions.` });
       } catch (err) {
         console.error('CSV upload GLM error:', err.message);
@@ -206,6 +247,7 @@ app.put('/api/transactions/:id', (req, res) => {
   const { category } = req.body;
   const stmt = db.prepare('UPDATE transactions SET Category = ? WHERE Row_ID = ?');
   stmt.run(category, req.params.id);
+  invalidateGLMCache();
   res.json({ success: true });
 });
 
@@ -213,18 +255,33 @@ app.put('/api/transactions/:id', (req, res) => {
 app.delete('/api/transactions/:id', (req, res) => {
   const stmt = db.prepare('DELETE FROM transactions WHERE Row_ID = ?');
   stmt.run(req.params.id);
+  invalidateGLMCache();
   res.json({ success: true });
 });
+
+// --- In-memory GLM cache (invalidated on any data change) ---
+let _analyticsCache = null;
+let _reportCache = null;
+
+function invalidateGLMCache() {
+  _analyticsCache = null;
+  _reportCache = null;
+  console.log('[CACHE] GLM cache invalidated');
+}
 
 // --- 2. Financial Analysis & Forecasting ---
 
 // Analytics: math-based data + GLM Call B narrative layer
 app.get('/api/analytics', async (req, res) => {
   try {
-    const context = buildFinancialContext();
+    if (_analyticsCache) {
+      console.log('[CACHE] Serving analytics from cache');
+      return res.json(_analyticsCache);
+    }
+    const context = await buildFinancialContext();
     const glmOutput = await getRecommendationsAndForecast(context, null);
 
-    res.json({
+    _analyticsCache = {
       summary: context.summary,
       trendData: context.trendData,
       categoryData: context.categoryData,
@@ -236,7 +293,8 @@ app.get('/api/analytics', async (req, res) => {
         scenario_warning: glmOutput.forecast.scenario_warning,
       },
       recommendations: glmOutput.recommendations,
-    });
+    };
+    res.json(_analyticsCache);
   } catch (err) {
     console.error('GET /api/analytics error:', err.message);
     res.status(500).json({ error: err.message });
@@ -245,19 +303,28 @@ app.get('/api/analytics', async (req, res) => {
 
 // --- 3 & 4. AI Recommendations & Report ---
 
-// Chat: GLM Call B with user message
+// Chat: GLM Call B with user message + conversation history from Supabase
 app.post('/api/chat', async (req, res) => {
-  const { message } = req.body;
+  const { message, session_id = 'default' } = req.body;
   if (!message || typeof message !== 'string') {
     return res.status(400).json({ error: 'message field is required' });
   }
 
   try {
-    const context = buildFinancialContext();
-    const glmOutput = await getRecommendationsAndForecast(context, message);
+    const [context, history] = await Promise.all([
+      buildFinancialContext(),
+      loadChatHistory(session_id, 10),
+    ]);
 
+    const glmOutput = await getRecommendationsAndForecast(context, message, history);
     const isReport = message.toLowerCase().includes('report');
     const reply = glmOutput.chat_reply || 'I was unable to generate a response. Please try again.';
+
+    // Save both turns to Supabase
+    await saveChatMessages(session_id, [
+      { role: 'user', content: message },
+      { role: 'assistant', content: reply },
+    ]);
 
     res.json({ reply, isReport });
   } catch (err) {
@@ -266,14 +333,29 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-// Report: GLM Call B → GLM Call C (fixes stuck /report page)
+// Report: check Supabase first, then GLM Call B → GLM Call C
 app.get('/api/report', async (req, res) => {
   try {
-    const context = buildFinancialContext();
-    const glmBOutput = await getRecommendationsAndForecast(context, null);
+    // 1. In-memory cache (fastest)
+    if (_reportCache) {
+      console.log('[CACHE] Serving report from memory cache');
+      return res.json(_reportCache);
+    }
+    // 2. Supabase persistent cache (survives server restart)
+    const saved = await loadLatestReport();
+    if (saved) {
+      console.log('[SUPABASE] Serving report from Supabase');
+      _reportCache = { summary: saved.summary, issues: saved.issues, recommendations: saved.recommendations, outcomes: saved.outcomes };
+      return res.json(_reportCache);
+    }
+    // 3. Generate fresh report with GLM
+    const context = await buildFinancialContext();
+    const glmBOutput = await getRecommendationsAndForecast(context, null, []);
     const report = await generateReport(context, glmBOutput);
 
-    res.json(report);
+    _reportCache = report;
+    await saveReport(report); // persist to Supabase
+    res.json(_reportCache);
   } catch (err) {
     console.error('GET /api/report error:', err.message);
     res.status(500).json({ error: err.message });

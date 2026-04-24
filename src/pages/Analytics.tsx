@@ -3,24 +3,29 @@ import { Navigation } from "@/components/Navigation";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { TrendingUp, TrendingDown, Target, BrainCircuit } from "lucide-react";
 
+// Module-level cache — survives page navigation within the SPA
+let _analyticsCache: any = null;
+
 export default function Analytics() {
-  const [data, setData] = useState({
+  const [data, setData] = useState(_analyticsCache || {
     trendData: [],
     categoryData: [],
     forecast: {
       predictedRevenue: 0,
       predictedExpenses: 0,
       expectedProfit: 0,
-      runwayMonths: 0,
+      runwayMonths: null,
       scenario_warning: 'Loading AI analysis...'
     }
   });
 
   useEffect(() => {
+    if (_analyticsCache) return; // already loaded
     const fetchAnalytics = async () => {
       try {
         const res = await fetch('/api/analytics');
         const json = await res.json();
+        _analyticsCache = json;
         setData(json);
       } catch (err) {
         console.error(err);
@@ -29,7 +34,12 @@ export default function Analytics() {
     fetchAnalytics();
   }, []);
 
-  const { trendData, categoryData, forecast } = data;
+  const trendData = data.trendData ?? [];
+  const categoryData = data.categoryData ?? [];
+  const forecast = data.forecast ?? {
+    predictedRevenue: 0, predictedExpenses: 0, expectedProfit: 0,
+    runwayMonths: null, scenario_warning: data.error ?? 'Loading AI analysis...'
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -87,7 +97,7 @@ export default function Analytics() {
 
             <div className="bg-card border border-border rounded-lg p-4 shadow-sm">
               <span className="text-sm text-muted-foreground">Target Runway</span>
-              <div className="text-2xl font-bold text-foreground mt-1">{forecast.runwayMonths > 120 ? 'Infinite' : `${forecast.runwayMonths.toFixed(1)} Months`}</div>
+              <div className="text-2xl font-bold text-foreground mt-1">{forecast.runwayMonths == null ? 'Profitable ✓' : forecast.runwayMonths > 120 ? 'Infinite' : `${forecast.runwayMonths.toFixed(1)} Months`}</div>
               <div className="flex items-center mt-2 text-xs text-muted-foreground">
                 <Target className="w-3 h-3 mr-1" /> Based on current burn
               </div>

@@ -19,6 +19,13 @@ const initialMessages: Message[] = [
   }
 ];
 
+// Persist session ID across navigations (one session per browser)
+const SESSION_ID = (() => {
+  let id = localStorage.getItem('finsight_session_id');
+  if (!id) { id = crypto.randomUUID(); localStorage.setItem('finsight_session_id', id); }
+  return id;
+})();
+
 export default function Chat() {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [inputValue, setInputValue] = useState("");
@@ -34,30 +41,36 @@ export default function Chat() {
 
   const handleSend = async () => {
     if (!inputValue.trim()) return;
-    
-    const newUserMsg: Message = { id: Date.now(), type: "user", content: inputValue };
-    setMessages(prev => [...prev, newUserMsg]);
+
+    const userText = inputValue;
+    const newUserMsg: Message = { id: Date.now(), type: "user", content: userText };
+    const loadingId = Date.now() + 1;
+    const loadingMsg: Message = { id: loadingId, type: "ai", content: "..." };
+
+    setMessages(prev => [...prev, newUserMsg, loadingMsg]);
     setInputValue("");
-    
+
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: inputValue }),
+        body: JSON.stringify({ message: userText, session_id: SESSION_ID }),
       });
       const data = await res.json();
-      
-      const newAiMsg: Message = { 
-        id: Date.now(), 
-        type: "ai", 
-        content: data.reply, 
-        isReport: data.isReport 
-      };
-      setMessages(prev => [...prev, newAiMsg]);
+      const replyText = data.reply || data.error || "Sorry, I could not generate a response.";
+
+      setMessages(prev => prev.map(m =>
+        m.id === loadingId
+          ? { ...m, content: replyText, isReport: data.isReport }
+          : m
+      ));
     } catch (err) {
       console.error(err);
-      const errorMsg: Message = { id: Date.now(), type: "ai", content: "Sorry, I am having trouble connecting to the backend right now." };
-      setMessages(prev => [...prev, errorMsg]);
+      setMessages(prev => prev.map(m =>
+        m.id === loadingId
+          ? { ...m, content: "Sorry, I am having trouble connecting to the backend right now." }
+          : m
+      ));
     }
   };
 
@@ -116,7 +129,11 @@ export default function Chat() {
                       ? 'bg-accent/20 text-foreground border border-accent/20 rounded-tr-none' 
                       : 'bg-muted/50 border border-border rounded-tl-none'
                   }`}>
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                    {msg.content === "..." ? (
+                      <p className="text-sm leading-relaxed animate-pulse text-muted-foreground">GLM is thinking...</p>
+                    ) : (
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                    )}
                     
                     {/* Mock Report Card if triggered */}
                     {msg.isReport && (

@@ -1,8 +1,8 @@
 // server/glm.js — Central GLM client for FinSight
 // All three GLM calls live here. If GLM_API_KEY is missing, everything fails loudly.
 
-const GLM_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
-const GLM_MODEL = 'glm-4-flash';
+const GLM_BASE_URL = 'https://api.ilmu.ai/v1/chat/completions';
+const GLM_MODEL = 'ilmu-glm-5.1';
 
 function requireApiKey() {
   const key = process.env.GLM_API_KEY;
@@ -12,36 +12,38 @@ function requireApiKey() {
   return key;
 }
 
-async function callGLM(messages, { temperature = 0.3, max_tokens = 1024, json_mode = false } = {}) {
+async function callGLM(messages, { temperature = 0.3, max_tokens = 1024 } = {}, retries = 2) {
   const apiKey = requireApiKey();
 
-  const body = {
-    model: GLM_MODEL,
-    messages,
-    temperature,
-    max_tokens,
-  };
+  const body = { model: GLM_MODEL, messages, temperature, max_tokens };
 
-  if (json_mode) {
-    body.response_format = { type: 'json_object' };
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const response = await fetch(GLM_BASE_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      // Retry on 5xx (server errors like 504 Gateway Timeout)
+      if (response.status >= 500 && attempt < retries) {
+        console.warn(`[GLM] Attempt ${attempt} failed with ${response.status}, retrying in 3s...`);
+        await new Promise(r => setTimeout(r, 3000));
+        continue;
+      }
+      throw new Error(`GLM API error ${response.status}: ${errText}`);
+    }
+
+    const data = await response.json();
+    let content = data.choices[0].message.content;
+    // Strip markdown code fences if model wraps JSON in ```json ... ```
+    content = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    return content;
   }
-
-  const response = await fetch(GLM_BASE_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`GLM API error ${response.status}: ${errText}`);
-  }
-
-  const data = await response.json();
-  return data.choices[0].message.content;
 }
 
 // --- GLM Call A: Parse & Categorise ---
@@ -97,7 +99,7 @@ Do not include any explanation outside the JSON.`;
 // Triggered by GET /api/analytics (userMessage=null) and POST /api/chat (userMessage=string)
 // Input:  financialContext { summary, trendData, categoryData, mathForecast } + optional userMessage
 // Output: { forecast: { scenario_warning }, recommendations: [{ issue, reasoning, action }], chat_reply }
-export async function getRecommendationsAndForecast(financialContext, userMessage = null) {
+export async function getRecommendationsAndForecast(financialContext, userMessage = null, chatHistory = []) {
   const systemPrompt = `You are FinSight, an AI financial advisor for a single-business owner.
 You will receive financial data and must provide:
 1. A "scenario_warning": a 1-2 sentence forward-looking risk warning based on trends.
@@ -138,12 +140,16 @@ Math-Based Forecast (next month):
     ? `${contextSummary}\n\nUser's question: ${userMessage}`
     : `${contextSummary}\n\nNo specific user question — provide general financial analysis.`;
 
+  // Inject last N turns of conversation history for memory
+  const historyMessages = chatHistory.slice(-6).map(m => ({ role: m.role, content: m.content }));
+
   const content = await callGLM(
     [
       { role: 'system', content: systemPrompt },
+      ...historyMessages,
       { role: 'user', content: userContent },
     ],
-    { temperature: 0.7, max_tokens: 1500, json_mode: true }
+    { temperature: 0.7, max_tokens: 3000, json_mode: true }
   );
 
   let parsed;
@@ -208,7 +214,7 @@ ${glmBOutput.recommendations.map((r, i) => `${i + 1}. Issue: ${r.issue} | Action
       { role: 'system', content: systemPrompt },
       { role: 'user', content: reportContext },
     ],
-    { temperature: 0.3, max_tokens: 2000, json_mode: true }
+    { temperature: 0.3, max_tokens: 3000, json_mode: true }
   );
 
   let parsed;

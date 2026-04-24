@@ -3,14 +3,19 @@ import { Navigation } from "@/components/Navigation";
 import { Button } from "@/components/ui/button";
 import { Download, FileText, TrendingDown, Target, HelpCircle } from "lucide-react";
 
+// Module-level cache — survives page navigation within the SPA
+let _reportCache: any = null;
+
 export default function Report() {
-  const [reportData, setReportData] = useState<any>(null);
+  const [reportData, setReportData] = useState<any>(_reportCache);
 
   useEffect(() => {
+    if (_reportCache) return; // already loaded
     const fetchReport = async () => {
       try {
         const res = await fetch('/api/report');
         const data = await res.json();
+        _reportCache = data;
         setReportData(data);
       } catch (err) {
         console.error(err);
