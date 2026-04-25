@@ -20,27 +20,33 @@ export default function Expenses() {
 
   const fetchTransactions = async () => {
     const API_URL = import.meta.env.VITE_API_URL || '';
-    try {
-      const [txRes, analyticsRes] = await Promise.all([
-        fetch(`${API_URL}/api/transactions`),
-        fetch(`${API_URL}/api/analytics`),
-      ]);
-      const txData = await txRes.json();
-      const analyticsData = await analyticsRes.json();
-      setTransactions(txData);
 
-      // Compute summary directly from transaction list so it always works
+    // Load transactions immediately — don't block on analytics
+    try {
+      const txRes = await fetch(`${API_URL}/api/transactions`);
+      const txData = await txRes.json();
+      setTransactions(txData);
       const totalRevenue = txData.filter((t: any) => t.type === 'income').reduce((s: number, t: any) => s + (t.Sales || 0), 0);
       const totalExpenses = txData.filter((t: any) => t.type === 'expense').reduce((s: number, t: any) => s + (t.Sales || 0), 0);
       setSummary({ totalRevenue, totalExpenses, netProfit: totalRevenue - totalExpenses });
+    } catch (err) {
+      console.error('Failed to load transactions:', err);
+    }
 
+    // Load analytics separately — if GLM is slow/down this won't block the page
+    try {
+      const analyticsRes = await fetch(`${API_URL}/api/analytics`);
+      const analyticsData = await analyticsRes.json();
       if (analyticsData.categoryData && analyticsData.categoryData.length > 0) {
-        const top = analyticsData.categoryData[0];
-        const pct = totalExpenses > 0 ? Math.round((top.amount / totalExpenses) * 100) : 0;
-        setTopCostDriver({ category: top.category, amount: top.amount, pct });
+        setSummary(prev => {
+          const top = analyticsData.categoryData[0];
+          const pct = prev.totalExpenses > 0 ? Math.round((top.amount / prev.totalExpenses) * 100) : 0;
+          setTopCostDriver({ category: top.category, amount: top.amount, pct });
+          return prev;
+        });
       }
     } catch (err) {
-      console.error(err);
+      console.error('Failed to load analytics:', err);
     }
   };
 
