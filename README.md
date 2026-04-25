@@ -1,175 +1,248 @@
-# 📚 CodeDrifter – Real-Time Documentation Assistant
+# 💡 FinSight — AI-Powered Business Expense Optimisation
 
-![Build](https://img.shields.io/badge/build-passing-brightgreen)
-![License](https://img.shields.io/badge/license-MIT-blue)
-![Contributors](https://img.shields.io/github/contributors/TsangDaXin/codeDrifter)
-![Stars](https://img.shields.io/github/stars/TsangDaXin/codeDrifter?style=social)
-![Issues](https://img.shields.io/github/issues/TsangDaXin/codeDrifter)
+> Built for **UMHackathon 2026** — Domain 2: AI for Economic Empowerment & Decision Intelligence
+
+FinSight is an AI-powered financial decision intelligence system designed for small business owners. It helps users understand where their money is going, forecast what's coming, and get actionable recommendations — all powered by **Z.AI's GLM model**.
 
 ---
 
-## 🌐 Business Webpage & Demo
-This GitHub repository also serves as the **official business webpage and live demo** for the **CodeDrifter browser extension**.
-* Just prototype design - hasn't integrated backend yet *
+## 🚀 Features
 
-👉 Check it out here: [CodeDrifter GitHub](https://github.com/TsangDaXin/codeDrifter)
-
-### Additional Resources
-- **Presentation Slides (Canva):**
-  [View the slides](https://www.canva.com/design/DAGxueAIYCQ/PmSSEdoeJe8Hp7zVbac2dA/edit?utm_content=DAGxueAIYCQ&utm_campaign=designshare&utm_medium=link2&utm_source=sharebutton)
-
-- **Demo Video (YouTube):**
-  [Watch the demo](https://www.youtube.com/watch?v=AnHmQitOoqE)
-
+| Feature | Description |
+|---|---|
+| 📤 Data Input | Upload CSV or manually enter transactions (income & expenses) |
+| 🏷️ AI Categorisation | GLM automatically categorises transactions (Salary, Rent, Utilities, Marketing, etc.) |
+| 📊 Financial Analysis | Instant summary of total income, expenses, and net profit |
+| 📈 Forecasting | GLM predicts next-month revenue, expenses, profit, and runway |
+| 🤖 AI Recommendations | Chat with your AI financial advisor — ask anything about your finances |
+| 📄 AI Financial Report | One-click generation of a full structured financial report |
 
 ---
 
+## 🧠 How GLM Powers the System
 
-## 🌟 Why CodeDrifter?
+FinSight makes **3 core GLM API calls** — removing any one of them breaks the system:
 
-In real-world dev environments, documentation is often:
+```
+GLM Call A  →  Parse raw CSV + auto-categorise transactions
+GLM Call B  →  Generate financial forecast + actionable recommendations  
+GLM Call C  →  Produce full structured AI financial report
+```
 
-❌ **Slow to write** – Developers avoid writing them.
-❌ **Painful to read** – Inconsistent style, broken links.
-❌ **Quickly stale** – Code changes, docs don't.
-
-This causes **onboarding delays, wasted time, and bugs**.
-
-✅ **CodeDrifter fixes that.**
-
----
-
-## ✨ Features
-
-### 📝 1. Smart Doc Writer (AI-Powered)
-- Auto-generates **starter docs** from your codebase (classes, methods, API routes, git commits).
-- AI-assisted **README generator** with Setup, Usage, API, Contributing.
-- Built-in **Markdown validator** to keep docs clean & professional.
-
-👉 *Benefit: Developers don't start from scratch. Docs are created instantly, then refined with small edits.*
+GLM is not an add-on — it is the engine. Without it, no data gets categorised, no forecast is generated, and no recommendations or reports are produced.
 
 ---
 
-### 🔄 2. Doc Drift Detector (Maintenance)
-- Detects **mismatches between code & docs**.
-- Example: If `getUser()` → renamed to `fetchUser()`, the tool flags outdated docs.
-- AI suggests doc updates when business logic changes (new params, return types, etc.).
-- GitHub Action bot + optional Slack/Discord alerts keep teams updated.
+## 🗂️ Pages
 
-👉 *Benefit: No more stale docs. Docs stay in sync with code.*
+### 1. Cashflow Page (`/`)
+- Upload CSV or add transactions manually
+- GLM parses and categorises each transaction automatically
+- Users can override any category manually
+- Summary cards: Total Income, Total Expenses, Net Profit
+- Transactions table with predicted categories
 
----
+### 2. Analytics Page (`/analytics`)
+- Revenue vs Expenses chart (6 months)
+- Category breakdown chart
+- GLM-powered forecast: predicted next-month figures
+- Trend signals per category (rising/falling)
+- Scenario warning: e.g. "If current trend continues, profit drops below 20% by July"
 
-### 📖 3. Doc Reader Mode
-- **Q&A chatbot for docs** → Ask: *"How do I create a payment?"* and get instant answers.
-- **AI auto-summarizer (TL;DR)** → Condense long design docs into digestible bullet points.
-
-👉 *Benefit: Faster onboarding. Easier to understand complex systems.*
-
----
-
-### ✍️ 4. Collaborative Documentation Editor
-- Share docs & **adjust permissions** (view, comment, edit).
-- Supports **command blocks `/` like Notion** for rich editing:
-  - ✅ Bullet lists, checklists
-  - ✅ Code blocks with syntax highlighting
-  - ✅ Auto-generate **UML diagrams & flowcharts**
-  - ✅ AI-powered inline formatting assistance
-
-👉 *Benefit: Docs become collaborative, living documents—not static text.*
+### 3. AI Assistant Page (`/chat`)
+- Chat interface powered by GLM
+- Ask natural language questions: "Why is my profit dropping?", "Where should I cut costs?"
+- Paste unstructured business notes for GLM to factor in
+- Click **Generate Report** to trigger a full AI financial report
+- Reports rendered inline and available for download
 
 ---
 
-### ⚡ 5. Digest Any Git Repository Instantly
-- Point CodeDrifter to any GitHub repo.
-- AI instantly **summarizes architecture, key files, workflows**.
-- Provides a **project-level TL;DR** for quick onboarding.
+## 🏗️ Architecture
 
-👉 *Benefit: Understand any repo in minutes. No more digging.*
+```
+┌─────────────────────────────────────────────────────┐
+│                    Frontend (React + Vite)           │
+│         Cashflow │ Analytics │ Chat │ Report         │
+└────────────────────────┬────────────────────────────┘
+                         │ /api proxy
+┌────────────────────────▼────────────────────────────┐
+│              Backend (Node.js + Express)             │
+│   /transactions │ /analytics │ /chat │ /report       │
+└──────────┬──────────────────────────┬───────────────┘
+           │                          │
+┌──────────▼──────────┐   ┌──────────▼──────────────┐
+│   Supabase (DB)     │   │     Z.AI GLM API         │
+│  transactions       │   │  Call A: Parse + Tag      │
+│  chat_history       │   │  Call B: Forecast + Recs  │
+│  monthly_summary    │   │  Call C: Full Report      │
+│  reports            │   └──────────────────────────┘
+└─────────────────────┘
+```
 
 ---
 
-## 🛠️ Setup Guide
+## 🛠️ Tech Stack
 
-### 2️⃣ Install Dependencies
+| Layer | Technology |
+|---|---|
+| Frontend | React + Vite + TypeScript |
+| Backend | Node.js + Express |
+| Database | Supabase (PostgreSQL) |
+| AI Model | Z.AI GLM (mandatory — central to system) |
+| CSV Parsing | multer + csv-parser |
+| Styling | Tailwind CSS |
 
-**Using Bun:**
-<pre>
-bun install
-</pre>
+---
 
-**Using npm:**
-<pre>
+## ⚙️ Setup & Installation
+
+### Prerequisites
+- Node.js v18+
+- Supabase account + project
+- Z.AI GLM API key
+
+### 1. Clone the repository
+```bash
+git clone https://github.com/YOUR_USERNAME/finsight.git
+cd finsight
+```
+
+### 2. Install frontend dependencies
+```bash
 npm install
-</pre>
+```
 
----
+### 3. Install backend dependencies
+```bash
+cd server
+npm install
+```
 
-### 3️⃣ Start Development Server
+### 4. Set up environment variables
 
-**Using Bun:**
-<pre>
-bun run dev
-</pre>
+Create a `.env` file in the `server/` directory:
+```env
+SUPABASE_URL=your_supabase_project_url
+SUPABASE_KEY=your_supabase_anon_key
+GLM_API_KEY=your_zai_glm_api_key
+GLM_API_URL=https://open.bigmodel.cn/api/paas/v4/chat/completions
+PORT=3001
+```
 
-**Using npm:**
-<pre>
+### 5. Set up Supabase tables
+
+Run the following in your Supabase SQL editor:
+
+```sql
+-- Transactions
+CREATE TABLE transactions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  date DATE NOT NULL,
+  description TEXT,
+  amount NUMERIC NOT NULL,
+  type TEXT CHECK (type IN ('income', 'expense')),
+  category TEXT,
+  source TEXT CHECK (source IN ('csv', 'manual')),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Chat history
+CREATE TABLE chat_history (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  role TEXT CHECK (role IN ('user', 'assistant')),
+  message TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Monthly summary
+CREATE TABLE monthly_summary (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  month INTEGER,
+  year INTEGER,
+  total_income NUMERIC,
+  total_expenses NUMERIC,
+  net_profit NUMERIC,
+  top_category TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Reports
+CREATE TABLE reports (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  summary TEXT,
+  key_issues TEXT,
+  recommended_actions TEXT,
+  forecast_outlook TEXT,
+  explanation TEXT,
+  generated_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### 6. Run the backend
+```bash
+cd server
+node index.js
+```
+
+### 7. Run the frontend
+```bash
+# From root directory
 npm run dev
-</pre>
+```
+
+Frontend runs on `http://localhost:5173`, backend on `http://localhost:3001`.
 
 ---
 
-### 4️⃣ Open in Browser
+## 📁 Project Structure
 
-The dev server runs at:
-👉 [http://localhost:5173](http://localhost:5173)
-
----
-
-## 📸 Demo
-### Front Page
-<img width="1424" height="885" alt="t1" src="https://github.com/user-attachments/assets/9580d6b0-f2b6-4179-96cd-b145e8db2c30" />
-<img width="1518" height="922" alt="t2" src="https://github.com/user-attachments/assets/e97a9693-596b-4bc9-a88e-63f7ef48ee1f" />
-<img width="1562" height="742" alt="t3" src="https://github.com/user-attachments/assets/d12c5b90-3cfa-4583-92a7-84c94abf6c61" />
-<img width="1273" height="763" alt="t20" src="https://github.com/user-attachments/assets/75947b77-1257-4fe2-9e38-70e78316206f" />
-<img width="1478" height="917" alt="t21" src="https://github.com/user-attachments/assets/0753fd51-82a2-4a94-8354-ac2b202ce404" />
-
-
-### Security Page
-<img width="1403" height="917" alt="t4" src="https://github.com/user-attachments/assets/8ac349dc-f1c9-4c05-baaf-a59b5b8d417b" />
-<img width="1304" height="914" alt="t5" src="https://github.com/user-attachments/assets/cf29accb-4a57-4ff8-a3e2-23c677997236" />
-
-### Notebook subpage
-<img width="1436" height="925" alt="t6" src="https://github.com/user-attachments/assets/1699ddd6-8699-4246-a7f3-e82fd72bedca" />
-
-### Other subpage - will integrate when official deploy !
-<img width="1235" height="441" alt="t7" src="https://github.com/user-attachments/assets/c8ed5278-1a30-4fda-8bb9-46b2e7aa2c8a" />
-<img width="1208" height="393" alt="t8" src="https://github.com/user-attachments/assets/863ecfed-4c81-48c2-b939-b0bfb6d40bb2" />
-<img width="1254" height="397" alt="t9" src="https://github.com/user-attachments/assets/e06c43b5-ea34-4e7e-8e4a-3fc3885a3c94" />
-
----
-## 🤝 Contributors
-
-Introducing **Team DELAY** 🚀
-
-| Name        | Role       | GitHub |
-|-------------|------------|--------|
-| Owen Tsang  | Developer  | [@TsangDaXin](https://github.com/TsangDaXin) |
-| Tan Lok Qi  | Developer  | [@lennardtan]([https://github.com/lennardtan) |
-| Chun Kit    | Developer  | [@delaynomore-png](https://github.com/delaynomore-png) |
-| Wai Hong    | Developer  | [@WAIHONGGR](https://github.com/WAIHONGGR) |
-
----
-## 📄 License
-
-This project is licensed under the **MIT License** – see the [LICENSE](./LICENSE) file for details.
+```
+finsight/
+├── src/                        # React frontend
+│   ├── pages/
+│   │   ├── Cashflow.tsx        # Expenses & Cashflow page
+│   │   ├── Analytics.tsx       # Financial Analytics page
+│   │   ├── Chat.tsx            # AI Assistant page
+│   │   └── Report.tsx          # AI Report page
+│   └── components/
+├── server/                     # Express backend
+│   ├── index.js                # Main server entry
+│   ├── categorisation.js       # GLM Call A — parse + categorise
+│   ├── glm.js                  # GLM API wrapper (all 3 calls)
+│   └── routes/
+│       ├── transactions.js
+│       ├── analytics.js
+│       ├── chat.js
+│       └── report.js
+├── .env                        # Environment variables (not committed)
+├── README.md
+└── package.json
+```
 
 ---
 
-## 🤲 Contributing
+## 👥 Team
 
-Contributions are welcome! Please check out our [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+| Name | Role |
+|---|---|
+| Guan Ee | Frontend Engineer |
+| Lok Qi | AI Engineer (GLM integration) |
+| Wai Hong | Backend Engineer |
+| Chun Kit | Backend Engineer |
+| Chee Cheng | Backend Engineer |
 
 ---
 
-💡 *Docs shouldn't slow you down — let's make them smarter, together.*
+## 🏆 Hackathon
+
+**Event:** UMHackathon 2026
+**Organiser:** Persatuan Komputer Universiti Malaya (PEKOM)
+**Domain:** Domain 2 — AI for Economic Empowerment & Decision Intelligence
+**Team:** FinSight
+
+> ⚠️ This project uses Z.AI's GLM model exclusively as required by UMHackathon 2026 rules. Using any other reasoning model is not permitted.
+
+---
+
+*© FinSight Team — UMHackathon 2026*
