@@ -1,5 +1,7 @@
 # 💡 FinSight — AI-Powered Business Expense Optimisation
 
+https://drive.google.com/file/d/1qJNOFNG033ngJsQ2LiCZYsGF9IgM9MP9/view?usp=sharing
+
 > Built for **UMHackathon 2026** — Domain 2: AI for Economic Empowerment & Decision Intelligence
 
 FinSight is an AI-powered financial decision intelligence system designed for small business owners. It helps users understand where their money is going, forecast what's coming, and get actionable recommendations — all powered by **Z.AI's GLM model**.
